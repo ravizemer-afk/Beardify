@@ -9,7 +9,8 @@
     "cap:sync": "npm run build && cap sync",
     "postinstall": "node scripts/copy-wasm.mjs",
     "android": "npm run build && cap sync android && cap open android",
-    "ios": "npm run build && cap sync ios && cap open ios"
+    "ios": "npm run build && cap sync ios && cap open ios",
+    "build:artifact": "tsc && vite build --mode artifact && node scripts/build-artifact.mjs"
   },
   "author": "",
   "license": "ISC",

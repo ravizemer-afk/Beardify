@@ -160,6 +160,8 @@ svg { fill: currentColor; }
 .primary:disabled { opacity: .6; }
 .ghost { background: rgba(255,255,255,.1); }
 .splash .primary { width: 100%; }
+.splash .wide { width: 100%; margin-top: 10px; }
+.top-actions { display: flex; gap: 10px; }
 
 .sheet {
   position: absolute; inset: 0; background: rgba(0,0,0,.7);

@@ -127,8 +127,23 @@ function selectColor(hex: string) {
 
 const crop = { sx: 0, sy: 0, sw: 1, sh: 1 };
 
+/** What is shown: the selfie camera (mirrored) or a photo or video the user picked. */
+const source = {
+  el: video as HTMLVideoElement | HTMLImageElement,
+  mirror: true,
+  get width() {
+    return this.el instanceof HTMLVideoElement ? this.el.videoWidth : this.el.naturalWidth;
+  },
+  get height() {
+    return this.el instanceof HTMLVideoElement ? this.el.videoHeight : this.el.naturalHeight;
+  },
+  get ready() {
+    return this.el instanceof HTMLVideoElement ? this.el.readyState >= 2 : this.el.complete && this.el.naturalWidth > 0;
+  },
+};
+
 function layout() {
-  const vw = video.videoWidth, vh = video.videoHeight;
+  const vw = source.width, vh = source.height;
   if (!vw || !vh) return;
   const aspect = innerWidth / innerHeight;
   let sw = vw, sh = vh;
@@ -158,32 +173,60 @@ async function startCamera() {
   video.srcObject = stream;
   await video.play();
   if (!video.videoWidth) await new Promise((r) => video.addEventListener('loadedmetadata', r, { once: true }));
+  source.el = video;
+  source.mirror = true;
   layout();
-  addEventListener('resize', layout);
 }
+
+/** Tries the beards on a photo or video from the device instead of the camera. */
+async function useFile(file: File) {
+  const url = URL.createObjectURL(file);
+  if (file.type.startsWith('video/')) {
+    const v = document.createElement('video');
+    v.muted = v.loop = v.playsInline = true;
+    v.src = url;
+    await v.play();
+    if (!v.videoWidth) await new Promise((r) => v.addEventListener('loadedmetadata', r, { once: true }));
+    source.el = v;
+  } else {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    source.el = img;
+  }
+  source.mirror = false;
+  layout();
+}
+addEventListener('resize', layout);
 
 let lastVideoTime = -1;
 const landmark = (i: number): Pt => {
   const pts = tracker.points!;
   const kx = canvas.width / crop.sw, ky = canvas.height / crop.sh;
-  // Mirror horizontally to match the selfie preview.
+  const x = (pts[i * 2] * source.width - crop.sx) * kx;
   return {
-    x: canvas.width - (pts[i * 2] * video.videoWidth - crop.sx) * kx,
-    y: (pts[i * 2 + 1] * video.videoHeight - crop.sy) * ky,
+    // Mirror horizontally to match the selfie preview.
+    x: source.mirror ? canvas.width - x : x,
+    y: (pts[i * 2 + 1] * source.height - crop.sy) * ky,
   };
 };
 
 function loop() {
   requestAnimationFrame(loop);
-  if (video.readyState < 2) return;
-  if (video.currentTime !== lastVideoTime) {
-    lastVideoTime = video.currentTime;
-    tracker.detect(video, performance.now());
+  if (!source.ready) return;
+  const el = source.el;
+  // A still photo is tracked every frame so the smoothing settles on it.
+  const time = el instanceof HTMLVideoElement ? el.currentTime : -2;
+  if (time !== lastVideoTime || time === -2) {
+    lastVideoTime = time;
+    tracker.detect(el, performance.now());
   }
   ctx.save();
-  ctx.translate(canvas.width, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+  if (source.mirror) {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(el, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
   ctx.restore();
 
   const hasFace = !!tracker.points;
@@ -208,6 +251,8 @@ const progress = $('recProgress') as unknown as SVGCircleElement;
 async function getMic() {
   if (micAsked) return micTrack;
   micAsked = true;
+  // Artifacts cannot use the microphone; record silently without a warning.
+  if (import.meta.env.VITE_ARTIFACT === '1') return null;
   try {
     const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
     micTrack = s.getAudioTracks()[0] ?? null;
@@ -364,9 +409,22 @@ $('galleryBtn').onclick = openGallery;
 $('closeGallery').onclick = () => ($('gallery').hidden = true);
 $('closePlayer').onclick = closePlayer;
 $('shareBtn').onclick = () => current && shareClip(current).catch((e) => toast(`Could not share: ${e.message ?? e}`));
-$('saveBtn').onclick = () => current && downloadClip(current);
+$('saveBtn').onclick = () => current && downloadClip(current)?.catch((e) => toast(`Could not save: ${e.message ?? e}`));
 $('deleteBtn').onclick = async () => {
-  if (!current || !confirm('Delete this video?')) return;
+  const btn = $('deleteBtn');
+  // Two taps instead of confirm(), which some web views block.
+  if (!current) return;
+  if (btn.dataset.armed !== '1') {
+    btn.dataset.armed = '1';
+    btn.textContent = 'Tap to confirm';
+    setTimeout(() => {
+      btn.dataset.armed = '';
+      btn.textContent = 'Delete';
+    }, 3000);
+    return;
+  }
+  btn.dataset.armed = '';
+  btn.textContent = 'Delete';
   await deleteClip(current.id);
   closePlayer();
   refreshGalleryButton();
@@ -404,18 +462,49 @@ async function boot() {
     start.onclick = () => location.reload();
     return;
   }
+  let running = false;
+  const enter = () => {
+    $('splash').classList.add('gone');
+    if (!running) loop();
+    running = true;
+  };
   start.disabled = false;
   start.textContent = 'Start camera';
+  if (import.meta.env.VITE_ARTIFACT === '1') {
+    // The camera is usually blocked inside claude.ai, so lead with files.
+    $('fileBtn').className = 'primary wide';
+    $('fileBtn').textContent = 'Choose a photo or video';
+    start.className = 'ghost wide';
+    start.textContent = 'Try the camera';
+    $('splashText').textContent =
+      'Try on beards using a photo or a short video of your face. Pick a style and colour, then record a clip.';
+    $('fileBtn').after(start);
+  }
   start.onclick = async () => {
     start.disabled = true;
     try {
       await startCamera();
-      $('splash').classList.add('gone');
-      loop();
+      enter();
     } catch (e) {
       console.error(e);
       start.disabled = false;
-      showError('Camera access is needed. Allow the camera in Settings and try again.');
+      showError('The camera is not available here. Allow camera access, or try a photo or video instead.');
+    }
+  };
+  const fileInput = $<HTMLInputElement>('fileInput');
+  const pickFile = () => fileInput.click();
+  $('fileBtn').onclick = pickFile;
+  $('sourceBtn').onclick = pickFile;
+  fileInput.onchange = async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!file) return;
+    try {
+      await useFile(file);
+      enter();
+    } catch (e) {
+      console.error(e);
+      showError('Could not open that file. Try a JPG or PNG photo, or an MP4 video.');
     }
   };
   if (new URLSearchParams(location.search).has('autostart')) start.click();

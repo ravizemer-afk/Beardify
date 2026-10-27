@@ -5,6 +5,11 @@
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
 
 const BASE = import.meta.env.BASE_URL;
+/** Built for a claude.ai Artifact, where scripts may only load from public CDNs. */
+const ARTIFACT = import.meta.env.VITE_ARTIFACT === '1';
+// Artifacts only serve web file types, so the model ships with a .wasm name there.
+const MODEL_PATH = `${BASE}models/face_landmarker.${ARTIFACT ? 'model.wasm' : 'task'}`;
+const MEDIAPIPE_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm';
 
 export class FaceTracker {
   private landmarker!: FaceLandmarker;
@@ -15,10 +20,15 @@ export class FaceTracker {
   points: Float32Array | null = null;
 
   async init() {
-    const fileset = await FilesetResolver.forVisionTasks(`${BASE}mediapipe/wasm`);
+    const fileset = ARTIFACT
+      ? {
+          wasmLoaderPath: `${MEDIAPIPE_CDN}/vision_wasm_internal.js`,
+          wasmBinaryPath: `${BASE}mediapipe/wasm/vision_wasm_internal.wasm`,
+        }
+      : await FilesetResolver.forVisionTasks(`${BASE}mediapipe/wasm`);
     const make = (delegate: 'GPU' | 'CPU') =>
       FaceLandmarker.createFromOptions(fileset, {
-        baseOptions: { modelAssetPath: `${BASE}models/face_landmarker.task`, delegate },
+        baseOptions: { modelAssetPath: MODEL_PATH, delegate },
         runningMode: 'VIDEO',
         numFaces: 1,
         minFaceDetectionConfidence: 0.5,
@@ -33,7 +43,7 @@ export class FaceTracker {
     }
   }
 
-  detect(video: HTMLVideoElement, nowMs: number) {
+  detect(video: HTMLVideoElement | HTMLImageElement, nowMs: number) {
     // detectForVideo needs strictly increasing timestamps.
     const t = Math.max(nowMs, this.lastTime + 1);
     this.lastTime = t;
