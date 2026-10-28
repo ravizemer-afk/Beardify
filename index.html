@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0d0d0f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Beardify</title>
+    <script type="module" crossorigin src="./assets/index-D8BMWYzU.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-BbrdCPzV.css">
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="stage"></canvas>
+      <video id="camera" playsinline muted autoplay></video>
+
+      <header class="topbar">
+        <div class="brand">Beardify</div>
+        <div class="rec-timer" id="recTimer" hidden><span class="dot"></span><span id="recTime">0:00</span></div>
+        <div class="top-actions">
+        <button class="icon-btn" id="sourceBtn" aria-label="Use a photo or video" title="Use a photo or video">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Zm1 12h14l-4.5-6-3.5 4.5-2.5-3L5 17Zm3-7.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>
+        </button>
+        <button class="icon-btn" id="compareBtn" aria-label="Show without beard" title="Hold to compare">
+          <svg viewBox="0 0 24 24"><path d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7Zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Z"/></svg>
+        </button>
+        </div>
+      </header>
+
+      <div class="hint" id="hint" hidden>Show your face to the camera</div>
+      <div class="guide" id="guide" hidden>
+        <div class="guide-arrows"><span>‹</span><span class="face-dot"></span><span>›</span></div>
+        <div>Slowly turn your head left and right</div>
+      </div>
+
+      <section class="panel" id="panel">
+        <div class="styles" id="styles" role="listbox" aria-label="Beard style"></div>
+        <div class="colors" id="colors" role="listbox" aria-label="Beard colour"></div>
+        <label class="slider">
+          <span>Length</span>
+          <input type="range" id="length" min="0.5" max="1.8" step="0.01" value="1" />
+        </label>
+        <div class="controls">
+          <button class="gallery-btn" id="galleryBtn" aria-label="My videos">
+            <img id="galleryThumb" alt="" hidden />
+            <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zM10 9v6l5-3z"/></svg>
+            <span class="badge" id="galleryCount" hidden></span>
+          </button>
+          <button class="record-btn" id="recordBtn" aria-label="Record">
+            <svg class="ring" viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" id="recProgress"/></svg>
+            <span class="core"></span>
+          </button>
+          <button class="icon-btn small" id="randomBtn" aria-label="Surprise me">
+            <svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm3 3a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm-4 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3ZM8 14a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>
+          </button>
+        </div>
+      </section>
+
+      <div class="splash" id="splash">
+        <div class="splash-inner">
+          <div class="logo">
+            <svg viewBox="0 0 64 64"><path d="M14 22c0 18 8 30 18 30s18-12 18-30c-4 6-8 8-12 8-2-3-4-4-6-4s-4 1-6 4c-4 0-8-2-12-8Z"/></svg>
+          </div>
+          <h1>Beardify</h1>
+          <p id="splashText">Try on beards live with your selfie camera. Pick a style and colour, then record a clip to share.</p>
+          <button class="primary" id="startBtn" disabled>Loading…</button>
+          <button class="ghost wide" id="fileBtn">Try a photo or video</button>
+          <input type="file" id="fileInput" accept="image/*,video/*" hidden />
+          <p class="error" id="error" hidden></p>
+          <p class="fine">Everything runs on your phone. Nothing is uploaded.</p>
+        </div>
+      </div>
+
+      <div class="sheet" id="player" hidden>
+        <div class="sheet-card">
+          <video id="playerVideo" playsinline controls loop></video>
+          <div class="sheet-actions">
+            <button class="ghost" id="deleteBtn">Delete</button>
+            <button class="ghost" id="saveBtn">Save</button>
+            <button class="primary" id="shareBtn">Share</button>
+          </div>
+          <button class="close" id="closePlayer" aria-label="Close">×</button>
+        </div>
+      </div>
+
+      <div class="sheet" id="gallery" hidden>
+        <div class="sheet-card gallery-card">
+          <h2>My videos</h2>
+          <div class="grid" id="grid"></div>
+          <p class="empty" id="empty">No videos yet. Tap the red button to record one.</p>
+          <button class="close" id="closeGallery" aria-label="Close">×</button>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
