@@ -139,6 +139,10 @@ export type Strand = {
   curl: number; // signed bend, fraction of strand length
   angle: number; // radians of random tilt
   shade: number; // index into the shade buckets
+  tone: number; // brightness variation, around 1
+  side: number; // extra sweep away from the face's centre line
+  lift: number; // extra sweep upwards (handlebar tips) or downwards if negative
+  curlBias: number; // >0 curls the tip upwards, <0 droops it
 };
 
 /** Small deterministic PRNG so a style always looks the same. */
@@ -176,6 +180,16 @@ const cellAreas: number[] = (() => {
   return areas;
 })();
 
+const canonicalFrame = new BeardFrame();
+canonicalFrame.update((i) => ({ x: CANONICAL[i][0], y: CANONICAL[i][1] }));
+
+/** Where (u, v) lies on the front-facing canonical face (x right, y down, the
+ *  mouth corners at x ≈ ±2.5, y ≈ 4.3; the chin at y ≈ 9.4). Handy for styles
+ *  whose shape is easier to describe on the face than around the ring. */
+export function canonicalAt(u: number, v: number): Pt {
+  return canonicalFrame.at(u, v, { x: 0, y: 0 });
+}
+
 export const SHADES = 4;
 
 export function buildStrands(style: BeardStyle, density: number): Strand[] {
@@ -200,6 +214,7 @@ export function buildStrands(style: BeardStyle, density: number): Strand[] {
     const iu = Math.floor(k / GRID_V), iv = k % GRID_V;
     const u = (iu + rand()) / GRID_U, v = (iv + rand()) / GRID_V;
     const m = style.mask(u, v);
+    const flow = style.flow?.(u, v);
     strands.push({
       u,
       v,
@@ -207,6 +222,10 @@ export function buildStrands(style: BeardStyle, density: number): Strand[] {
       curl: (rand() - 0.5) * style.curl,
       angle: (rand() - 0.5) * 0.7,
       shade: Math.min(SHADES - 1, Math.floor(rand() * rand() * SHADES * 1.4)),
+      tone: 0.85 + rand() * 0.3,
+      side: flow?.side ?? 0,
+      lift: flow?.lift ?? 0,
+      curlBias: (flow?.curl ?? 0) * (0.7 + rand() * 0.6),
     });
     next += step;
   }
@@ -230,7 +249,11 @@ export const SHADE_ALPHA = [1, 1, 1, 0.7];
 export const SHADE_WIDTH = [1.25, 1, 1, 0.7];
 
 /** A strand on screen: a quadratic curve root → (control) → tip. */
-export type Curve = { rx: number; ry: number; cx: number; cy: number; tx: number; ty: number };
+export type Curve = {
+  rx: number; ry: number; cx: number; cy: number; tx: number; ty: number;
+  /** 0 on the cheek facing the camera, up to 1 on the cheek turned away. */
+  far: number;
+};
 
 const tmpA: Pt = { x: 0, y: 0 };
 const tmpB: Pt = { x: 0, y: 0 };
@@ -248,8 +271,10 @@ export function strandCurve(frame: BeardFrame, st: Strand, lengthScale: number, 
   ox /= ol; oy /= ol;
   const side = (root.x - frame.center.x) * right.x + (root.y - frame.center.y) * right.y;
   const sideSign = Math.sign(side);
-  const dx0 = down.x * 0.85 + ox * 0.35 + right.x * sideSign * 0.18;
-  const dy0 = down.y * 0.85 + oy * 0.35 + right.y * sideSign * 0.18;
+  const sweep = 0.18 + st.side;
+  const fall = 0.85 - st.lift;
+  const dx0 = down.x * fall + ox * 0.35 + right.x * sideSign * sweep;
+  const dy0 = down.y * fall + oy * 0.35 + right.y * sideSign * sweep;
   const c = Math.cos(st.angle), sn = Math.sin(st.angle);
   const rx = dx0 * c - dy0 * sn, ry = dx0 * sn + dy0 * c;
   const dl = Math.hypot(rx, ry) || 1;
@@ -257,7 +282,10 @@ export function strandCurve(frame: BeardFrame, st: Strand, lengthScale: number, 
   // When the head turns, hairs on the far cheek are seen side-on and look shorter.
   const far = Math.max(0, -sideSign * frame.yaw);
   const len = st.len * frame.scale * lengthScale * (1 - 0.45 * far);
-  const bend = st.curl * len;
+  // Bend the tip up (curlBias > 0) or down, whichever way that is on screen.
+  const towardsDown = Math.sign(-dy * down.x + dx * down.y) || 1;
+  const bend = (st.curl - st.curlBias * towardsDown) * len;
+  out.far = far;
   out.rx = root.x;
   out.ry = root.y;
   out.tx = root.x + dx * len;
@@ -270,7 +298,7 @@ export function strandCurve(frame: BeardFrame, st: Strand, lengthScale: number, 
 /** The base layer is a grid over the ring; its corners as (u, v). */
 export const BASE_STEPS_U = 72, BASE_STEPS_V = 8, BASE_V0 = 0.1;
 
-const curve: Curve = { rx: 0, ry: 0, cx: 0, cy: 0, tx: 0, ty: 0 };
+const curve: Curve = { rx: 0, ry: 0, cx: 0, cy: 0, tx: 0, ty: 0, far: 0 };
 
 /** Paints the beard with Canvas 2D. Used for the style thumbnails and as a
  *  fallback on devices without WebGL (see beard-gl.ts for the fast path). */

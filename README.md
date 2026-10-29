@@ -8,8 +8,12 @@ beard) to keep in the app or share.
 
 - Real-time face tracking on the front camera (MediaPipe Face Landmarker, 478
   points, runs fully on the phone; nothing is uploaded).
-- 7 beard styles: Stubble, Short, Full, Chin only, Goatee + mustache,
-  Mustache, Chinstrap.
+- 13 beard styles: Stubble, Short, Full, Long beard, Chin only, Chin beard,
+  Goatee + mustache, Mustache, Handlebar, Pirate, Horseshoe, Mutton chops,
+  Chinstrap.
+- Beards adapt to the face: they follow the room's lighting, have darker roots
+  and shadow under the jaw, and thin out on the cheek turned away.
+- Zoom out (.5x, .7x) or in with the buttons or a two-finger pinch.
 - 10 colours plus a custom colour picker, and a length slider. Changes apply
   instantly.
 - Hold the eye button to compare with and without the beard.

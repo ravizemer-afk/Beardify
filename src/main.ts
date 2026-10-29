@@ -202,14 +202,90 @@ addEventListener('resize', layout);
 let lastVideoTime = -1;
 const landmark = (i: number): Pt => {
   const pts = tracker.points!;
-  const kx = canvas.width / crop.sw, ky = canvas.height / crop.sh;
-  const x = (pts[i * 2] * source.width - crop.sx) * kx;
+  const v = view();
+  const x = v.dx + pts[i * 2] * v.dw;
   return {
     // Mirror horizontally to match the selfie preview.
     x: source.mirror ? canvas.width - x : x,
-    y: (pts[i * 2 + 1] * source.height - crop.sy) * ky,
+    y: v.dy + pts[i * 2 + 1] * v.dh,
   };
 };
+
+// ---------- Lighting ----------
+// Every few frames, read how bright the cheeks and forehead are and dim or
+// brighten the beard a little to match. Kept mild so skin tone barely matters.
+
+let light = 1, lightFrame = 0;
+const LIGHT_POINTS = [50, 280, 9];
+
+function sampleLight() {
+  if (lightFrame++ % 8) return;
+  let sum = 0, n = 0;
+  for (const i of LIGHT_POINTS) {
+    const p = landmark(i);
+    const x = Math.round(p.x) - 3, y = Math.round(p.y) - 3;
+    if (x < 0 || y < 0 || x + 6 > canvas.width || y + 6 > canvas.height) continue;
+    const d = ctx.getImageData(x, y, 6, 6).data;
+    for (let k = 0; k < d.length; k += 4) sum += (0.2126 * d[k] + 0.7152 * d[k + 1] + 0.0722 * d[k + 2]) / 255;
+    n += d.length / 4;
+  }
+  if (!n) return;
+  const target = Math.min(1.15, Math.max(0.65, Math.pow(sum / n / 0.45, 0.35)));
+  light += (target - light) * 0.3;
+}
+
+// ---------- Zoom ----------
+// At 1x the picture fills the screen (edges cropped). Below 1x the whole camera
+// frame shrinks into view, like a wider lens, so more of you and the room fits.
+
+const ZOOM_MIN = 0.5, ZOOM_MAX = 2;
+let zoom = 1;
+
+/** Where the source picture sits on the canvas at the current zoom. */
+function view() {
+  const k = (canvas.width / crop.sw) * zoom;
+  const dw = source.width * k, dh = source.height * k;
+  return { dx: (canvas.width - dw) / 2, dy: (canvas.height - dh) / 2, dw, dh };
+}
+
+function setZoom(z: number) {
+  zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  const label = $('zoomLabel');
+  label.textContent = `${zoom < 1 ? zoom.toFixed(1).replace(/^0/, '') : Math.round(zoom * 10) / 10}x`;
+  document.querySelectorAll<HTMLElement>('.zoom button[data-zoom]').forEach((b) =>
+    b.setAttribute('aria-pressed', String(Math.abs(Number(b.dataset.zoom) - zoom) < 0.05)),
+  );
+}
+
+document.querySelectorAll<HTMLElement>('.zoom button[data-zoom]').forEach((b) => {
+  b.onclick = () => setZoom(Number(b.dataset.zoom));
+});
+
+// Pinch with two fingers anywhere on the picture.
+const pointers = new Map<number, { x: number; y: number }>();
+let pinchStart = 0, zoomStart = 1;
+const spread = () => {
+  const [a, b] = [...pointers.values()];
+  return Math.hypot(a.x - b.x, a.y - b.y);
+};
+canvas.addEventListener('pointerdown', (e) => {
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2) {
+    pinchStart = spread();
+    zoomStart = zoom;
+  }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size === 2 && pinchStart > 0) setZoom((zoomStart * spread()) / pinchStart);
+});
+for (const type of ['pointerup', 'pointercancel', 'pointerleave'] as const) {
+  canvas.addEventListener(type, (e) => {
+    pointers.delete(e.pointerId);
+    pinchStart = 0;
+  });
+}
 
 function loop() {
   requestAnimationFrame(loop);
@@ -226,7 +302,12 @@ function loop() {
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
   }
-  ctx.drawImage(el, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+  const v = view();
+  if (v.dx > 0 || v.dy > 0) {
+    ctx.fillStyle = '#0d0d0f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  ctx.drawImage(el, v.dx, v.dy, v.dw, v.dh);
   ctx.restore();
 
   const hasFace = !!tracker.points;
@@ -234,7 +315,8 @@ function loop() {
   if (hasFace && !state.compare) {
     frame.update(landmark);
     if (beardGL) {
-      beardGL.render(canvas.width, canvas.height, frame, state.style, state.strands, state.color, state.length);
+      sampleLight();
+      beardGL.render(canvas.width, canvas.height, frame, state.style, state.strands, state.color, state.length, light);
       ctx.drawImage(beardGL.canvas, 0, 0);
     } else {
       drawBeard(ctx, frame, state.style, state.strands, state.color, state.length);

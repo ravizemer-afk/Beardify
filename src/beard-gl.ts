@@ -114,6 +114,8 @@ export class BeardGL {
     strands: Strand[],
     color: string,
     lengthScale: number,
+    /** Brightness of the scene around the face, so the beard matches the room's lighting. */
+    light = 1,
   ) {
     const gl = this.gl;
     if (this.canvas.width !== width || this.canvas.height !== height) {
@@ -140,7 +142,7 @@ export class BeardGL {
     };
 
     this.ensureCapacity(strands.length);
-    const shades = shadeRGB(color).map(([r, g, b]) => [r / 255, g / 255, b / 255]);
+    const shades = shadeRGB(color).map(([r, g, b]) => [(r / 255) * light, (g / 255) * light, (b / 255) * light]);
     const out = this.verts;
 
     // 1. Base layer.
@@ -168,15 +170,20 @@ export class BeardGL {
     let o = 0;
     for (const st of strands) {
       const c = strandCurve(frame, st, lengthScale, curve);
+      // Hair under the jaw sits in shadow; each strand varies a little in tone.
+      const k = st.tone * (1 - 0.28 * st.v * st.v);
       const [r, g, b] = shades[st.shade];
-      const alpha = style.alpha * SHADE_ALPHA[st.shade];
+      // Hairs on the cheek turned away from the camera are seen edge-on.
+      const alpha = style.alpha * SHADE_ALPHA[st.shade] * (1 - 0.3 * c.far);
       const w = (widthBase * SHADE_WIDTH[st.shade]) / 2;
       // Point on the curve halfway along.
       const mx = 0.25 * c.rx + 0.5 * c.cx + 0.25 * c.tx;
       const my = 0.25 * c.ry + 0.5 * c.cy + 0.25 * c.ty;
-      o = ribbonPoint(out, o, c.rx, c.ry, c.cx - c.rx, c.cy - c.ry, w, r, g, b, alpha);
-      o = ribbonPoint(out, o, mx, my, c.tx - c.rx, c.ty - c.ry, w * 0.8, r, g, b, alpha * 0.9);
-      o = ribbonPoint(out, o, c.tx, c.ty, c.tx - c.cx, c.ty - c.cy, w * 0.45, r, g, b, alpha * 0.35);
+      // Roots are darker than the tips, as with real facial hair.
+      const kr = k * 0.72, kt = Math.min(1.25, k * 1.12);
+      o = ribbonPoint(out, o, c.rx, c.ry, c.cx - c.rx, c.cy - c.ry, w, r * kr, g * kr, b * kr, alpha);
+      o = ribbonPoint(out, o, mx, my, c.tx - c.rx, c.ty - c.ry, w * 0.8, r * k, g * k, b * k, alpha * 0.9);
+      o = ribbonPoint(out, o, c.tx, c.ty, c.tx - c.cx, c.ty - c.cy, w * 0.45, r * kt, g * kt, b * kt, alpha * 0.35);
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
     gl.bufferData(gl.ARRAY_BUFFER, out.subarray(0, o), gl.STREAM_DRAW);
@@ -194,7 +201,7 @@ export class BeardGL {
 const CHUNK = 10000;
 
 const tmp: Pt = { x: 0, y: 0 };
-const curve: Curve = { rx: 0, ry: 0, cx: 0, cy: 0, tx: 0, ty: 0 };
+const curve: Curve = { rx: 0, ry: 0, cx: 0, cy: 0, tx: 0, ty: 0, far: 0 };
 
 /** Writes the two side vertices of a ribbon at (x, y) heading along (dx, dy). */
 function ribbonPoint(
